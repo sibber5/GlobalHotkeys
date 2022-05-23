@@ -22,10 +22,10 @@ namespace GlobalHotkeys
         private const int ERROR_HOTKEY_ALREADY_REGISTERED = 1409;
 
         private static bool _disposed = false;
-        private static readonly object MsgListenerLock = new();
-        private static readonly object DisposeLock = new();
-        private static readonly object HotkeyLock = new();
-        private static readonly object HotkeyActionLock = new();
+        private static readonly object _msgListenerLock = new();
+        private static readonly object _disposeLock = new();
+        private static readonly object _hotkeyLock = new();
+        private static readonly object _hotkeyActionLock = new();
 
         private static Dictionary<ushort, Hotkey> _hotkeyIdPairs = new();
 
@@ -37,13 +37,16 @@ namespace GlobalHotkeys
             {
                 if (_msgListener is null)
                 {
-                    lock (MsgListenerLock)
+                    lock (_msgListenerLock)
                     {
+                        using ManualResetEvent mre = new(false);
+
                         if (_msgListener is null)
                         {
                             _msgListener = new Thread(() =>
                             {
                                 _msgListenerId = NativeMethods.GetCurrentThreadId();
+                                mre.Set();
 
                                 MSG msg = default;
                                 while (NativeMethods.GetMessage(ref msg, IntPtr.Zero, 0, 0) != 0)
@@ -99,13 +102,9 @@ namespace GlobalHotkeys
                             _msgListener.SetApartmentState(ApartmentState.STA);
                             _msgListener.Start();
                         }
-                    }
 
-                    // Wait until the thread's id is set.
-                    // 0 is never a thread id because when GetThreadId fails it returns 0.
-                    while (_msgListenerId == 0)
-                    {
-                        Thread.Sleep(5);
+                        // Wait until the thread's id is set.
+                        mre.WaitOne();
                     }
                 }
 
@@ -117,7 +116,7 @@ namespace GlobalHotkeys
         /// <returns>The <typeparamref name="id"/> of the hotkey.</returns>
         public static int AddOrReplaceHotkey(KeyModifier modifierKeys, VirtualKey key, Action<HotkeyEventArgs> OnHotkeyPressed, bool noRepeat = true)
         {
-            lock (HotkeyLock)
+            lock (_hotkeyLock)
             {
                 var hotkey = new Hotkey(modifierKeys, key, OnHotkeyPressed, noRepeat);
                 _hotkeyIdPairs.Add(hotkey.Id, hotkey);
@@ -139,7 +138,7 @@ namespace GlobalHotkeys
 
         public static void SetHotkeyAction(int hotkeyId, Action<HotkeyEventArgs> OnHotkeyPressed)
         {
-            lock (HotkeyActionLock)
+            lock (_hotkeyActionLock)
             {
                 _hotkeyIdPairs[(ushort)hotkeyId].HotkeyPressed = OnHotkeyPressed;
             }
@@ -149,7 +148,7 @@ namespace GlobalHotkeys
         {
             if (_disposed) return;
 
-            lock (DisposeLock)
+            lock (_disposeLock)
             {
                 if (_disposed) return;
 
